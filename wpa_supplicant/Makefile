@@ -40,7 +40,7 @@ export INCDIR ?= /usr/local/include
 export BINDIR ?= /usr/local/sbin
 PKG_CONFIG ?= pkg-config
 
-CFLAGS += $(EXTRA_CFLAGS)
+CFLAGS += $(EXTRA_CFLAGS) -Werror
 CFLAGS += -I$(abspath ../src)
 CFLAGS += -I$(abspath ../src/utils)
 
@@ -113,6 +113,7 @@ OBJS_c += ../src/utils/wpa_debug.o
 OBJS_c += ../src/utils/common.o
 OBJS_c += ../src/common/cli.o
 OBJS += wmm_ac.o
+OBJS += ../src/utils/string_utils.o
 
 ifndef CONFIG_OS
 ifdef CONFIG_NATIVE_WINDOWS
@@ -265,6 +266,10 @@ ifdef CONFIG_SAE
 CFLAGS += -DCONFIG_SAE
 OBJS += ../src/common/sae.o
 ifdef CONFIG_SAE_PK
+# NO ECDH support yet
+ifeq ($(CONFIG_TLS), mbedtls)
+$(error CONFIG_TLS=mbedtls doesn't support SAE-PK yet)
+endif
 CFLAGS += -DCONFIG_SAE_PK
 OBJS += ../src/common/sae_pk.o
 endif
@@ -278,6 +283,10 @@ endif
 endif
 
 ifdef CONFIG_DPP
+# NO ECDH support yet
+ifeq ($(CONFIG_TLS), mbedtls)
+$(error CONFIG_TLS=mbedtls doesn't support DPP yet)
+endif
 CFLAGS += -DCONFIG_DPP
 OBJS += ../src/common/dpp.o
 OBJS += ../src/common/dpp_auth.o
@@ -307,6 +316,10 @@ endif
 endif
 
 ifdef CONFIG_OWE
+# NO ECDH support yet
+ifeq ($(CONFIG_TLS), mbedtls)
+$(error CONFIG_TLS=mbedtls doesn't support OWE yet)
+endif
 CFLAGS += -DCONFIG_OWE
 NEED_ECC=y
 NEED_HMAC_SHA256_KDF=y
@@ -321,6 +334,10 @@ CFLAGS += -DCONFIG_FILS
 NEED_SHA384=y
 NEED_AES_SIV=y
 ifdef CONFIG_FILS_SK_PFS
+# NO ECDH support yet
+ifeq ($(CONFIG_TLS), mbedtls)
+$(error CONFIG_TLS=mbedtls doesn't support FILS_SK_PFS yet)
+endif
 CFLAGS += -DCONFIG_FILS_SK_PFS
 NEED_ECC=y
 endif
@@ -406,6 +423,10 @@ endif
 endif
 
 ifdef CONFIG_PASN
+# NO ECDH support yet
+ifeq ($(CONFIG_TLS), mbedtls)
+$(error CONFIG_TLS=mbedtls doesn't support PASN yet)
+endif
 CFLAGS += -DCONFIG_PASN
 CFLAGS += -DCONFIG_PTKSA_CACHE
 NEED_HMAC_SHA256_KDF=y
@@ -687,6 +708,9 @@ NEED_T_PRF=y
 endif
 
 ifdef CONFIG_EAP_TEAP
+ifeq ($(CONFIG_TLS), mbedtls)
+$(error CONFIG_TLS=mbedtls doesn't support EAP-TEAP yet)
+endif
 # EAP-TEAP
 SRC_EAP_TEAP = ../src/eap_peer/eap_teap.c ../src/eap_peer/eap_teap_pac.c
 SRC_EAP_TEAP += ../src/eap_common/eap_teap_common.c
@@ -986,9 +1010,12 @@ OBJS += ../src/ap/wps_hostapd.o
 OBJS += ../src/eap_server/eap_server_wsc.o
 endif
 ifdef CONFIG_DPP
+# NO ECDH support yet
+ifneq ($(CONFIG_TLS), mbedtls)
 OBJS += ../src/ap/dpp_hostapd.o
 OBJS += ../src/ap/gas_query_ap.o
 NEED_AP_GAS_SERV=y
+endif
 endif
 ifdef CONFIG_INTERWORKING
 NEED_AP_GAS_SERV=y
@@ -1137,6 +1164,41 @@ ifndef CONFIG_TLS_DEFAULT_CIPHERS
 CONFIG_TLS_DEFAULT_CIPHERS = "DEFAULT:!EXP:!LOW"
 endif
 CFLAGS += -DTLS_DEFAULT_CIPHERS=\"$(CONFIG_TLS_DEFAULT_CIPHERS)\"
+endif
+
+ifeq ($(CONFIG_TLS), mbedtls)
+CFLAGS += -DCONFIG_MBEDTLS_FS_IO
+CFLAGS += -I/usr/local/include/
+ifdef TLS_FUNCS
+OBJS += ../src/crypto/tls_mbedtls.o
+LIBS += -lmbedtls -lmbedx509
+endif
+OBJS += ../src/crypto/crypto_mbedtls.o
+OBJS_p += ../src/crypto/crypto_mbedtls.o
+OBJS_priv += ../src/crypto/crypto_mbedtls.o
+
+OBJS += ../src/crypto/crypto_mbedtls-bignum.o
+OBJS_p += ../src/crypto/crypto_mbedtls-bignum.o
+OBJS_priv += ../src/crypto/crypto_mbedtls-bignum.o
+
+OBJS += ../src/crypto/crypto_mbedtls-ec.o
+OBJS_p += ../src/crypto/crypto_mbedtls-ec.o
+OBJS_priv += ../src/crypto/crypto_mbedtls-ec.o
+NEED_TLS_PRF_SHA256=y
+NEED_TLS_PRF_SHA384=y
+NEED_HMAC_SHA384_KDF=y
+OBJS += ../src/crypto/fips_prf_internal.o
+SHA1OBJS += ../src/crypto/sha1-internal.o
+CONFIG_INTERNAL_RC4=y
+CONFIG_INTERNAL_MD4=y
+CONFIG_INTERNAL_DH_GROUP5=y
+CONFIG_INTERNAL_SHA512=y
+LIBS += -lmbedcrypto
+LIBS_p += -lmbedcrypto
+ifdef CONFIG_TLS_ADD_DL
+LIBS += -ldl
+LIBS_p += -ldl
+endif
 endif
 
 ifeq ($(CONFIG_TLS), gnutls)
@@ -1331,7 +1393,9 @@ endif
 
 ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 NEED_INTERNAL_AES_WRAP=y
+endif
 endif
 endif
 ifdef CONFIG_OPENSSL_INTERNAL_AES_WRAP
@@ -1359,7 +1423,9 @@ AESOBJS += ../src/crypto/aes-siv.o
 NEED_AES_CTR=y
 endif
 ifdef NEED_AES_CTR
+ifneq ($(CONFIG_TLS), mbedtls)
 AESOBJS += ../src/crypto/aes-ctr.o
+endif
 endif
 ifdef NEED_AES_ENCBLOCK
 AESOBJS += ../src/crypto/aes-encblock.o
@@ -1368,7 +1434,9 @@ NEED_AES_ENC=y
 ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), linux)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 AESOBJS += ../src/crypto/aes-omac1.o
+endif
 endif
 endif
 endif
@@ -1383,7 +1451,9 @@ NEED_AES_ENC=y
 ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), linux)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 AESOBJS += ../src/crypto/aes-cbc.o
+endif
 endif
 endif
 endif
@@ -1402,11 +1472,14 @@ ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), linux)
 ifneq ($(CONFIG_TLS), gnutls)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 SHA1OBJS += ../src/crypto/sha1.o
 endif
 endif
 endif
 endif
+endif
+
 SHA1OBJS += ../src/crypto/sha1-prf.o
 ifdef CONFIG_INTERNAL_SHA1
 SHA1OBJS += ../src/crypto/sha1-internal.o
@@ -1419,7 +1492,9 @@ CFLAGS += -DCONFIG_NO_PBKDF2
 else
 ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 SHA1OBJS += ../src/crypto/sha1-pbkdf2.o
+endif
 endif
 endif
 endif
@@ -1436,7 +1511,9 @@ ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), linux)
 ifneq ($(CONFIG_TLS), gnutls)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 MD5OBJS += ../src/crypto/md5.o
+endif
 endif
 endif
 endif
@@ -1496,11 +1573,14 @@ ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), linux)
 ifneq ($(CONFIG_TLS), gnutls)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 SHA256OBJS += ../src/crypto/sha256.o
 endif
 endif
 endif
 endif
+endif
+
 SHA256OBJS += ../src/crypto/sha256-prf.o
 ifdef CONFIG_INTERNAL_SHA256
 SHA256OBJS += ../src/crypto/sha256-internal.o
@@ -1537,7 +1617,9 @@ ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), linux)
 ifneq ($(CONFIG_TLS), gnutls)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 OBJS += ../src/crypto/sha384.o
+endif
 endif
 endif
 endif
@@ -1586,6 +1668,9 @@ ifdef CONFIG_GETRANDOM
 CFLAGS += -DCONFIG_GETRANDOM
 endif
 OBJS += ../src/crypto/random.o
+OBJS_p += ../src/crypto/random.o
+OBJS_priv += ../src/crypto/random.o
+
 endif
 
 ifdef CONFIG_CTRL_IFACE
@@ -1732,7 +1817,9 @@ ifdef CONFIG_FIPS
 CFLAGS += -DCONFIG_FIPS
 ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 $(error CONFIG_FIPS=y requires CONFIG_TLS=openssl)
+endif
 endif
 endif
 endif
