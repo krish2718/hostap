@@ -9,6 +9,13 @@
  * %wpa_supplicant interfaces. In addition, this file contains number of
  * functions for managing network connections.
  */
+#ifdef CONFIG_ZEPHYR
+#include <supp_events.h>
+#endif /* CONFIG_ZEPHYR */
+
+#ifdef CONFIG_ZEPHYR
+#include <supp_events.h>
+#endif /* CONFIG_ZEPHYR */
 
 #include "includes.h"
 #ifdef CONFIG_MATCH_IFACE
@@ -905,6 +912,27 @@ void wpa_supplicant_reinit_autoscan(struct wpa_supplicant *wpa_s)
 	}
 }
 
+// TODO: This WAR is needed as we always lose the first frame after association (DHCP),
+// and IP assignment gets delayed (esp. with exponential backoff in Zephyr DHCP client), so
+// we send out a dummy frame that will be lost, and then DHCP will go through smoothly.
+//
+// Remove this once the first frame issue is fixed.
+static void dhcp_war(struct wpa_supplicant *wpa_s)
+{
+       int len = 30, res = -1;
+       char *buf;
+
+       buf = os_malloc(len);
+       if (buf == NULL)
+               return;
+
+       memset(buf, 0xAA, len);
+
+       res = l2_packet_send(wpa_s->l2, wpa_s->bssid, ntohs(0x8989), buf, len);
+       wpa_printf(MSG_DEBUG, "DHCP WAR: TX frame res=%d", res);
+       os_free(buf);
+}
+
 
 /**
  * wpa_supplicant_set_state - Set current connection state
@@ -1002,6 +1030,7 @@ void wpa_supplicant_set_state(struct wpa_supplicant *wpa_s,
 			ssid && ssid->id_str ? ssid->id_str : "",
 			fils_hlp_sent ? " FILS_HLP_SENT" : "");
 #endif /* CONFIG_CTRL_IFACE || !CONFIG_NO_STDOUT_DEBUG */
+
 		wpas_clear_temp_disabled(wpa_s, ssid, 1);
 		wpa_s->consecutive_conn_failures = 0;
 		wpa_s->new_connection = 0;
@@ -1012,9 +1041,14 @@ void wpa_supplicant_set_state(struct wpa_supplicant *wpa_s,
 		wpa_s->after_wps = 0;
 		wpa_s->known_wps_freq = 0;
 		wpas_p2p_completed(wpa_s);
+		dhcp_war(wpa_s);
 
 		sme_sched_obss_scan(wpa_s, 1);
 
+#ifdef CONFIG_ZEPHYR
+		int status = 0;
+		send_wifi_mgmt_event(wpa_s->ifname, NET_EVENT_WIFI_CMD_CONNECT_RESULT, (void *)&status, sizeof(int));
+#endif /* CONFIG_ZEPHYR */
 #if defined(CONFIG_FILS) && defined(IEEE8021X_EAPOL)
 		if (!fils_hlp_sent && ssid && ssid->eap.erp)
 			update_fils_connect_params = true;
@@ -1156,6 +1190,7 @@ int wpa_supplicant_reload_configuration(struct wpa_supplicant *wpa_s)
 		wpa_msg(wpa_s, MSG_ERROR,
 			"Failed to parse the configuration file '%s' - exiting",
 			wpa_s->confanother);
+		os_free(conf);
 		return -1;
 	}
 
@@ -6223,7 +6258,7 @@ static void radio_start_next_work(void *eloop_ctx, void *timeout_ctx)
 	os_get_reltime(&now);
 	os_reltime_sub(&now, &work->time, &diff);
 	wpa_dbg(wpa_s, MSG_DEBUG,
-		"Starting radio work '%s'@%p after %ld.%06ld second wait",
+		"Starting radio work '%s'@%p after %lld.%06lld second wait",
 		work->type, work, diff.sec, diff.usec);
 	work->started = 1;
 	work->time = now;
@@ -6421,7 +6456,7 @@ void radio_work_done(struct wpa_radio_work *work)
 
 	os_get_reltime(&now);
 	os_reltime_sub(&now, &work->time, &diff);
-	wpa_dbg(wpa_s, MSG_DEBUG, "Radio work '%s'@%p %s in %ld.%06ld seconds",
+	wpa_dbg(wpa_s, MSG_DEBUG, "Radio work '%s'@%p %s in %lld.%06lld seconds",
 		work->type, work, started ? "done" : "canceled",
 		diff.sec, diff.usec);
 	radio_work_free(work);
@@ -8187,6 +8222,7 @@ void wpas_request_disconnection(struct wpa_supplicant *wpa_s)
 }
 
 
+#ifndef CONFIG_ZEPHYR
 void dump_freq_data(struct wpa_supplicant *wpa_s, const char *title,
 		    struct wpa_used_freq_data *freqs_data,
 		    unsigned int len)
@@ -8201,6 +8237,7 @@ void dump_freq_data(struct wpa_supplicant *wpa_s, const char *title,
 			i, cur->freq, cur->flags);
 	}
 }
+#endif /* CONFIG_ZEPHYR */
 
 
 /*
@@ -8253,7 +8290,9 @@ int get_shared_radio_freqs_data(struct wpa_supplicant *wpa_s,
 		}
 	}
 
+#ifndef CONFIG_ZEPHYR
 	dump_freq_data(wpa_s, "completed iteration", freqs_data, idx);
+#endif /* CONFIG_ZEPHYR */
 	return idx;
 }
 
@@ -8577,6 +8616,17 @@ int wpas_disable_mac_addr_randomization(struct wpa_supplicant *wpa_s,
 	return 0;
 }
 
+int wpa_drv_get_conn_info(struct wpa_supplicant *wpa_s, struct wpa_conn_info *ci)
+{
+	int res;
+
+	if (!wpa_s->driver->get_conn_info)
+		return -1;
+
+	res = wpa_s->driver->get_conn_info(wpa_s->drv_priv, ci);
+
+	return res;
+}
 
 int wpa_drv_signal_poll(struct wpa_supplicant *wpa_s,
 			struct wpa_signal_info *si)

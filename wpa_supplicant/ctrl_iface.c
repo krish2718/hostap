@@ -62,7 +62,7 @@
 #ifdef __NetBSD__
 #include <net/if_ether.h>
 #elif !defined(__CYGWIN__) && !defined(CONFIG_NATIVE_WINDOWS)
-#include <net/ethernet.h>
+#include <zephyr/net/ethernet.h>
 #endif
 
 static int wpa_supplicant_global_iface_list(struct wpa_global *global,
@@ -8612,7 +8612,7 @@ static int wpas_ctrl_radio_work_show(struct wpa_supplicant *wpa_s,
 		int ret;
 
 		os_reltime_sub(&now, &work->time, &diff);
-		ret = os_snprintf(pos, end - pos, "%s@%s:%u:%u:%ld.%06ld\n",
+		ret = os_snprintf(pos, end - pos, "%s@%s:%u:%u:%lld.%06lld\n",
 				  work->type, work->wpa_s->ifname, work->freq,
 				  work->started, diff.sec, diff.usec);
 		if (os_snprintf_error(end - pos, ret))
