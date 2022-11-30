@@ -2230,6 +2230,7 @@ static int crypto_ec_group_2_nid(int group)
 	switch (group) {
 	case 19:
 		return NID_X9_62_prime256v1;
+#if 0
 	case 20:
 		return NID_secp384r1;
 	case 21:
@@ -2254,6 +2255,7 @@ static int crypto_ec_group_2_nid(int group)
 	case 30:
 		return NID_brainpoolP512r1;
 #endif /* NID_brainpoolP512r1 */
+#endif
 	default:
 		return -1;
 	}

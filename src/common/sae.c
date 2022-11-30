@@ -613,6 +613,9 @@ static void debug_print_bignum(const char *title, const struct crypto_bignum *a,
 	u8 *bin;
 
 	bin = os_malloc(prime_len);
+	if (!bin) {
+		printf("Failed to alloc memory: %d\n", prime_len);
+	}
 	if (bin && crypto_bignum_to_bin(a, bin, prime_len, prime_len) >= 0)
 		wpa_hexdump_key(MSG_DEBUG, title, bin, prime_len);
 	else
@@ -642,8 +645,11 @@ static struct crypto_ec_point * sswu(struct crypto_ec *ec, int group,
 
 	prime = crypto_ec_get_prime(ec);
 	prime_len = crypto_ec_prime_len(ec);
+	debug_print_bignum("SSWU: Prime ", prime, prime_len);
 	a = crypto_ec_get_a(ec);
 	b = crypto_ec_get_b(ec);
+	debug_print_bignum("SSWU: A ", a, prime_len);
+	debug_print_bignum("SSWU: B", b, prime_len);
 
 	u2 = crypto_bignum_init();
 	t1 = crypto_bignum_init();
@@ -692,9 +698,16 @@ static struct crypto_ec_point * sswu(struct crypto_ec *ec, int group,
 	debug_print_bignum("SSWU: t", t, prime_len);
 
 	/* b / (z * a) */
-	if (crypto_bignum_mulmod(z, a, prime, t1) < 0 ||
-	    crypto_bignum_inverse(t1, prime, t1) < 0 ||
-	    crypto_bignum_mulmod(b, t1, prime, x1a) < 0)
+	int ret = crypto_bignum_mulmod(z, a, prime, t1);
+	if (ret < 0)
+		goto fail;
+
+	ret =    crypto_bignum_inverse(t1, prime, t1);
+	if (ret < 0) {
+		goto fail;
+	}
+	ret = 	    crypto_bignum_mulmod(b, t1, prime, x1a);
+	if (ret < 0)
 		goto fail;
 	debug_print_bignum("SSWU: x1a = b / (z * a)", x1a, prime_len);
 
@@ -718,12 +731,23 @@ static struct crypto_ec_point * sswu(struct crypto_ec *ec, int group,
 	debug_print_bignum("SSWU: x1 = CSEL(l, x1a, x1b)", x1, prime_len);
 
 	/* gx1 = x1^3 + a * x1 + b */
-	if (crypto_bignum_exptmod(x1, three, prime, t1) < 0 ||
-	    crypto_bignum_mulmod(a, x1, prime, t2) < 0 ||
-	    crypto_bignum_addmod(t1, t2, prime, t1) < 0 ||
-	    crypto_bignum_addmod(t1, b, prime, gx1) < 0)
+	ret = 	crypto_bignum_exptmod(x1, three, prime, t1);
+	if (ret < 0)
 		goto fail;
-	debug_print_bignum("SSWU: gx1 = x1^3 + a * x1 + b", gx1, prime_len);
+	debug_print_bignum("SSWU: t1", t1, prime_len);
+	ret =   crypto_bignum_mulmod(a, x1, prime, t2);
+	if (ret < 0)
+		goto fail;
+	debug_print_bignum("SSWU: t2", t1, prime_len);
+	ret =   crypto_bignum_addmod(t1, t2, prime, t1);
+	if (ret < 0)
+		goto fail;
+	debug_print_bignum("SSWU: t1", t1, prime_len);
+	debug_print_bignum("SSWU: b", b, prime_len);
+	ret =    crypto_bignum_addmod(t1, b, prime, gx1);
+	if (ret < 0)
+		goto fail;
+	debug_print_bignum("SSWU: gx1 = x1^3 + a * x1 + b", gx1, prime_len + 1);
 
 	/* x2 = z * u^2 * x1 */
 	if (crypto_bignum_mulmod(z, u2, prime, t1) < 0 ||
@@ -741,10 +765,12 @@ static struct crypto_ec_point * sswu(struct crypto_ec *ec, int group,
 
 	/* l = gx1 is a quadratic residue modulo p
 	 * --> gx1^((p-1)/2) modulo p is zero or one */
-	if (crypto_bignum_sub(prime, one, t1) < 0 ||
-	    crypto_bignum_rshift(t1, 1, t1) < 0 ||
-	    crypto_bignum_exptmod(gx1, t1, prime, t1) < 0)
-		goto fail;
+	crypto_bignum_sub(prime, one, t1);
+	    crypto_bignum_rshift(t1, 1, t1);
+	debug_print_bignum("SSWU: t1 mod", t1, prime_len);
+	debug_print_bignum("SSWU: gx1 mod", gx1, prime_len);
+	debug_print_bignum("SSWU: p mod", prime, prime_len);
+	    crypto_bignum_exptmod(gx1, t1, prime, t1);
 	debug_print_bignum("SSWU: gx1^((p-1)/2) modulo p", t1, prime_len);
 	is_qr = const_time_eq(crypto_bignum_is_zero(t1) |
 			      crypto_bignum_is_one(t1), 1);

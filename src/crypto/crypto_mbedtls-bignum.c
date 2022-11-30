@@ -74,12 +74,14 @@ int crypto_bignum_to_bin(
 	int ret = 0;
 
 	if (padlen > buflen) {
+		printf("Failed to print bignum pad %d-%d \n",  padlen , buflen);
 		return -1;
 	}
 
 	num_bytes = mbedtls_mpi_size((mbedtls_mpi *)a);
 
 	if ((size_t)num_bytes > buflen) {
+		printf("Failed to print bignum %d-%d \n",  num_bytes , buflen);
 		return -1;
 	}
 	if (padlen > (size_t)num_bytes) {
@@ -95,6 +97,7 @@ int crypto_bignum_to_bin(
 
 	return num_bytes + offset;
 cleanup:
+	printf("Failed to print bignum\n");
 	return ret;
 }
 
@@ -124,22 +127,31 @@ int crypto_bignum_exptmod(
     const struct crypto_bignum *a, const struct crypto_bignum *b,
     const struct crypto_bignum *c, struct crypto_bignum *d)
 {
-	return mbedtls_mpi_exp_mod(
-		   (mbedtls_mpi *)d, (const mbedtls_mpi *)a,
-		   (const mbedtls_mpi *)b, (const mbedtls_mpi *)c, NULL)
-		   ? -1
-		   : 0;
+	int ret;
+
+	mbedtls_mpi res;
+
+	mbedtls_mpi_init(&res);
+	MBEDTLS_MPI_CHK(mbedtls_mpi_exp_mod(
+		   (mbedtls_mpi *)&res, (const mbedtls_mpi *)a,
+		   (const mbedtls_mpi *)b, (const mbedtls_mpi *)c, NULL));
+	MBEDTLS_MPI_CHK(mbedtls_mpi_copy((mbedtls_mpi *)d, (const mbedtls_mpi *)&res));
+
+cleanup:
+	mbedtls_mpi_free(&res);
+	return ret;
 }
 
 int crypto_bignum_inverse(
     const struct crypto_bignum *a, const struct crypto_bignum *b,
     struct crypto_bignum *c)
 {
-	return mbedtls_mpi_inv_mod(
+
+	int ret = mbedtls_mpi_inv_mod(
 		   (mbedtls_mpi *)c, (const mbedtls_mpi *)a,
-		   (const mbedtls_mpi *)b)
-		   ? -1
-		   : 0;
+		   (const mbedtls_mpi *)b);
+	printf("%s:%d RET is %d\n", __func__, __LINE__, ret);
+	return ret;
 }
 
 int crypto_bignum_sub(
@@ -164,24 +176,33 @@ int crypto_bignum_div(
 		   : 0;
 }
 
+static void debug_print_bignum(const char *title, const struct crypto_bignum *a,
+			       size_t prime_len)
+{
+	u8 *bin;
+
+	bin = os_malloc(prime_len);
+	if (bin && crypto_bignum_to_bin(a, bin, prime_len, prime_len) >= 0)
+		wpa_hexdump_key(MSG_DEBUG, title, bin, prime_len);
+	else
+		wpa_printf(MSG_DEBUG, "Could not print bignum (%s)", title);
+	bin_clear_free(bin, prime_len);
+}
+
 int crypto_bignum_mulmod(
     const struct crypto_bignum *a, const struct crypto_bignum *b,
     const struct crypto_bignum *c, struct crypto_bignum *d)
 {
-	int res;
-
-	mbedtls_mpi temp;
-	mbedtls_mpi_init(&temp);
+	int res, prime_len=32;
+	struct crypto_bignum *tmp = crypto_bignum_init();
 
 	res = mbedtls_mpi_mul_mpi(
-	    &temp, (const mbedtls_mpi *)a, (const mbedtls_mpi *)b);
+	    (mbedtls_mpi *) tmp, (const mbedtls_mpi *)a, (const mbedtls_mpi *)b);
 	if (res) {
 		return -1;
 	}
-
-	res = mbedtls_mpi_mod_mpi((mbedtls_mpi *)d, &temp, (mbedtls_mpi *)c);
-	mbedtls_mpi_free(&temp);
-#
+	res = mbedtls_mpi_mod_mpi((mbedtls_mpi *)d, (const mbedtls_mpi *)tmp, (const mbedtls_mpi *)c);
+	crypto_bignum_deinit(tmp, 0);
 	return res ? -1 : 0;
 }
 
@@ -211,9 +232,15 @@ int crypto_bignum_sqrmod(
     const struct crypto_bignum *a, const struct crypto_bignum *b,
     struct crypto_bignum *c)
 {
-	return mbedtls_mpi_exp_mod(
-	    (mbedtls_mpi *)c, (mbedtls_mpi *)a, (mbedtls_mpi *)a,
-	    (mbedtls_mpi *)b, NULL);
+	struct crypto_bignum *two = crypto_bignum_init_uint(2);
+	int ret;
+
+	MBEDTLS_MPI_CHK(mbedtls_mpi_exp_mod(
+	    (mbedtls_mpi *)c, (mbedtls_mpi *)a, (mbedtls_mpi *)two,
+	    (mbedtls_mpi *)b, NULL));
+cleanup:
+	crypto_bignum_deinit(two, 0);
+	return ret;
 }
 
 int crypto_bignum_rshift(
@@ -292,20 +319,15 @@ int crypto_bignum_addmod(
     const struct crypto_bignum *c, struct crypto_bignum *d)
 {
 	struct crypto_bignum *tmp = crypto_bignum_init();
-	int ret = -1;
+	int ret;
+	MBEDTLS_MPI_CHK(mbedtls_mpi_add_mpi(
+		(mbedtls_mpi *)tmp, (const mbedtls_mpi *)a,
+		(const mbedtls_mpi *)b));
+	MBEDTLS_MPI_CHK(mbedtls_mpi_mod_mpi(
+		(mbedtls_mpi *)d, (const mbedtls_mpi *)tmp,
+		(const mbedtls_mpi *)c));
 
-	if (mbedtls_mpi_add_mpi(
-		(mbedtls_mpi *)tmp, (const mbedtls_mpi *)b,
-		(const mbedtls_mpi *)c) < 0)
-		goto fail;
-
-	if (mbedtls_mpi_mod_mpi(
-		(mbedtls_mpi *)a, (const mbedtls_mpi *)tmp,
-		(const mbedtls_mpi *)d) < 0)
-		goto fail;
-
-	ret = 0;
-fail:
+cleanup:
 	crypto_bignum_deinit(tmp, 0);
 	return ret;
 }
