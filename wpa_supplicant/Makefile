@@ -1,28 +1,23 @@
 BINALL=wpa_supplicant wpa_cli
 
+ifndef CONFIG_NO_WPA_PASSPHRASE
+BINALL += wpa_passphrase
+endif
+
 ALL = $(BINALL)
 ALL += systemd/wpa_supplicant.service
 ALL += systemd/wpa_supplicant@.service
 ALL += systemd/wpa_supplicant-nl80211@.service
 ALL += systemd/wpa_supplicant-wired@.service
 ALL += dbus/fi.w1.wpa_supplicant1.service
+ifdef CONFIG_BUILD_WPA_CLIENT_SO
+ALL += libwpa_client.so
+endif
 
 EXTRA_TARGETS=dynamic_eap_methods
 
 CONFIG_FILE=.config
 include ../src/build.rules
-
-ifdef CONFIG_BUILD_WPA_CLIENT_SO
-# add the dependency this way to allow CONFIG_BUILD_WPA_CLIENT_SO
-# being set in the config which is read by build.rules
-_all: libwpa_client.so
-endif
-
-ifndef CONFIG_NO_WPA_PASSPHRASE
-# add the dependency this way to allow CONFIG_NO_WPA_PASSPHRASE
-# being set in the config which is read by build.rules
-_all: wpa_passphrase
-endif
 
 ifdef LIBS
 # If LIBS is set with some global build system defaults, clone those for
@@ -40,6 +35,9 @@ export INCDIR ?= /usr/local/include
 export BINDIR ?= /usr/local/sbin
 PKG_CONFIG ?= pkg-config
 
+CFLAGS += -Wunused-variable 
+#-fstack-protector -fstack-protector-all -fsanitize=address   -Wstack-protector
+#LDFLAGS += -fsanitize=address 
 CFLAGS += $(EXTRA_CFLAGS)
 CFLAGS += -I$(abspath ../src)
 CFLAGS += -I$(abspath ../src/utils)
@@ -101,12 +99,14 @@ OBJS += ../src/utils/crc32.o
 OBJS += op_classes.o
 OBJS += rrm.o
 OBJS += twt.o
-OBJS += robust_av.o
+#OBJS += robust_av.o
 OBJS_p = wpa_passphrase.o
 OBJS_p += ../src/utils/common.o
 OBJS_p += ../src/utils/wpa_debug.o
 OBJS_p += ../src/utils/wpabuf.o
-OBJS_c = wpa_cli.o ../src/common/wpa_ctrl.o
+OBJS_c += wpa_cli_cmds.o
+OBJS_c += wpa_cli.o 
+OBJS_c += ../src/common/wpa_ctrl.o
 OBJS_c += ../src/utils/wpa_debug.o
 OBJS_c += ../src/utils/common.o
 OBJS_c += ../src/common/cli.o
@@ -150,6 +150,7 @@ ifndef CONFIG_ELOOP
 CONFIG_ELOOP=eloop
 endif
 OBJS += ../src/utils/$(CONFIG_ELOOP).o
+OBJS_p += ../src/utils/$(CONFIG_ELOOP).o
 OBJS_c += ../src/utils/$(CONFIG_ELOOP).o
 
 ifndef CONFIG_OSX
@@ -274,6 +275,7 @@ ifdef CONFIG_TESTING_OPTIONS
 NEED_DH_GROUPS_ALL=y
 endif
 endif
+CFLAGS += -DCONFIG_WMM_AC=y
 
 ifdef CONFIG_DPP
 CFLAGS += -DCONFIG_DPP
@@ -298,9 +300,6 @@ NEED_BASE64=y
 NEED_ASN1=y
 ifdef CONFIG_DPP2
 CFLAGS += -DCONFIG_DPP2
-endif
-ifdef CONFIG_DPP3
-CFLAGS += -DCONFIG_DPP3
 endif
 endif
 
@@ -998,7 +997,6 @@ endif
 ifdef CONFIG_MBO
 OBJS += mbo.o
 CFLAGS += -DCONFIG_MBO
-NEED_GAS=y
 endif
 
 ifdef NEED_RSN_AUTHENTICATOR
@@ -1124,6 +1122,39 @@ endif
 NEED_TLS_PRF_SHA256=y
 LIBS += -lcrypto
 LIBS_p += -lcrypto
+ifdef CONFIG_TLS_ADD_DL
+LIBS += -ldl
+LIBS_p += -ldl
+endif
+ifndef CONFIG_TLS_DEFAULT_CIPHERS
+CONFIG_TLS_DEFAULT_CIPHERS = "DEFAULT:!EXP:!LOW"
+endif
+CFLAGS += -DTLS_DEFAULT_CIPHERS=\"$(CONFIG_TLS_DEFAULT_CIPHERS)\"
+endif
+
+ifeq ($(CONFIG_TLS), mbedtls)
+CFLGAGS += -I/usr/local/include/
+ifdef TLS_FUNCS
+CFLAGS += -DEAP_TLS_OPENSSL
+OBJS += ../src/crypto/tls_mbedtls.o
+LIBS += -lmbedtls -lmbedx509
+endif
+OBJS += ../src/crypto/crypto_mbedtls.o
+OBJS_p += ../src/crypto/crypto_mbedtls.o
+OBJS_priv += ../src/crypto/crypto_mbedtls.o
+
+OBJS += ../src/crypto/crypto_mbedtls-bignum.o
+OBJS_p += ../src/crypto/crypto_mbedtls-bignum.o
+OBJS_priv += ../src/crypto/crypto_mbedtls-bignum.o
+
+OBJS += ../src/crypto/crypto_mbedtls-ec.o
+OBJS_p += ../src/crypto/crypto_mbedtls-ec.o
+OBJS_priv += ../src/crypto/crypto_mbedtls-ec.o
+NEED_TLS_PRF_SHA256=y
+NEED_TLS_PRF_SHA384=y
+CONFIG_INTERNAL_RC4=y
+LIBS += -lmbedcrypto
+LIBS_p += -lmbedcrypto
 ifdef CONFIG_TLS_ADD_DL
 LIBS += -ldl
 LIBS_p += -ldl
@@ -1326,7 +1357,9 @@ endif
 
 ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 NEED_INTERNAL_AES_WRAP=y
+endif
 endif
 endif
 ifdef CONFIG_OPENSSL_INTERNAL_AES_WRAP
@@ -1365,7 +1398,9 @@ CFLAGS += -DCONFIG_OPENSSL_CMAC
 else
 ifneq ($(CONFIG_TLS), linux)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 AESOBJS += ../src/crypto/aes-omac1.o
+endif
 endif
 endif
 endif
@@ -1380,7 +1415,9 @@ NEED_AES_ENC=y
 ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), linux)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 AESOBJS += ../src/crypto/aes-cbc.o
+endif
 endif
 endif
 endif
@@ -1399,11 +1436,14 @@ ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), linux)
 ifneq ($(CONFIG_TLS), gnutls)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 SHA1OBJS += ../src/crypto/sha1.o
 endif
 endif
 endif
 endif
+endif
+
 SHA1OBJS += ../src/crypto/sha1-prf.o
 ifdef CONFIG_INTERNAL_SHA1
 SHA1OBJS += ../src/crypto/sha1-internal.o
@@ -1416,7 +1456,9 @@ CFLAGS += -DCONFIG_NO_PBKDF2
 else
 ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 SHA1OBJS += ../src/crypto/sha1-pbkdf2.o
+endif
 endif
 endif
 endif
@@ -1433,7 +1475,9 @@ ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), linux)
 ifneq ($(CONFIG_TLS), gnutls)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 MD5OBJS += ../src/crypto/md5.o
+endif
 endif
 endif
 endif
@@ -1482,11 +1526,14 @@ ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), linux)
 ifneq ($(CONFIG_TLS), gnutls)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 SHA256OBJS += ../src/crypto/sha256.o
 endif
 endif
 endif
 endif
+endif
+
 SHA256OBJS += ../src/crypto/sha256-prf.o
 ifdef CONFIG_INTERNAL_SHA256
 SHA256OBJS += ../src/crypto/sha256-internal.o
@@ -1523,7 +1570,9 @@ ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), linux)
 ifneq ($(CONFIG_TLS), gnutls)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 OBJS += ../src/crypto/sha384.o
+endif
 endif
 endif
 endif
@@ -1536,7 +1585,9 @@ ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), linux)
 ifneq ($(CONFIG_TLS), gnutls)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 OBJS += ../src/crypto/sha512.o
+endif
 endif
 endif
 endif
@@ -1572,6 +1623,9 @@ ifdef CONFIG_GETRANDOM
 CFLAGS += -DCONFIG_GETRANDOM
 endif
 OBJS += ../src/crypto/random.o
+OBJS_p += ../src/crypto/random.o
+OBJS_priv += ../src/crypto/random.o
+
 endif
 
 ifdef CONFIG_CTRL_IFACE
@@ -1718,7 +1772,9 @@ ifdef CONFIG_FIPS
 CFLAGS += -DCONFIG_FIPS
 ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 $(error CONFIG_FIPS=y requires CONFIG_TLS=openssl)
+endif
 endif
 endif
 endif
@@ -1884,10 +1940,6 @@ endif
 
 ifdef CONFIG_NO_TKIP
 CFLAGS += -DCONFIG_NO_TKIP
-endif
-
-ifdef CONFIG_NW_SEL_RELIABILITY
-CFLAGS += -DCONFIG_NW_SEL_RELIABILITY
 endif
 
 dynamic_eap_methods: $(EAPDYN)
@@ -2082,4 +2134,3 @@ clean: common-clean
 	rm -f libwpa_client.a
 	rm -f libwpa_client.so
 	rm -f libwpa_test1 libwpa_test2
-	rm -f wpa_passphrase

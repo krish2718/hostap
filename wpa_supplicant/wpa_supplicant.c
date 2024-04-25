@@ -4020,7 +4020,9 @@ static void wpas_start_assoc_cb(struct wpa_radio_work *work, int deinit)
 	params.sae_pwe = wpa_s->conf->sae_pwe;
 #endif /* CONFIG_SAE */
 
+#ifdef CONFIG_ZEPHYR
 	params.bss_max_idle_period = CONFIG_BSS_MAX_IDLE_TIME;
+#endif
 	ret = wpa_drv_associate(wpa_s, &params);
 	os_free(wpa_ie);
 	if (ret < 0) {

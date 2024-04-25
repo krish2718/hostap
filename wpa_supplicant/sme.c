@@ -2119,7 +2119,9 @@ mscs_fail:
 	else
 		params.uapsd = -1;
 
+#ifdef CONFIG_ZEPHYR
 	params.bss_max_idle_period = CONFIG_BSS_MAX_IDLE_TIME;
+#endif
 	if (wpa_drv_associate(wpa_s, &params) < 0) {
 		wpa_msg(wpa_s, MSG_INFO, "SME: Association request to the "
 			"driver failed");

@@ -17,6 +17,7 @@
 #include "ctrl_iface.h"
 #include "common/version.h"
 #include "common/ieee802_11_defs.h"
+#include "wpa_cli_cmds.h"
 
 #define CMD_BUF_LEN  1024
 
@@ -26,14 +27,14 @@
 	"7: GO Neg Resp, 8: GO Neg Conf, 9: Inv Req, 10: Inv Resp, " \
 	"11: Assoc Req (P2P), 12: Assoc Resp (P2P)"
 
-static DEFINE_DL_LIST(bsses); /* struct cli_txt_entry */
-static DEFINE_DL_LIST(p2p_peers); /* struct cli_txt_entry */
-static DEFINE_DL_LIST(p2p_groups); /* struct cli_txt_entry */
-static DEFINE_DL_LIST(ifnames); /* struct cli_txt_entry */
-static DEFINE_DL_LIST(networks); /* struct cli_txt_entry */
-static DEFINE_DL_LIST(creds); /* struct cli_txt_entry */
+DEFINE_DL_LIST(bsses); /* struct cli_txt_entry */
+DEFINE_DL_LIST(p2p_peers); /* struct cli_txt_entry */
+DEFINE_DL_LIST(p2p_groups); /* struct cli_txt_entry */
+DEFINE_DL_LIST(ifnames); /* struct cli_txt_entry */
+DEFINE_DL_LIST(networks); /* struct cli_txt_entry */
+DEFINE_DL_LIST(creds); /* struct cli_txt_entry */
 #ifdef CONFIG_AP
-static DEFINE_DL_LIST(stations); /* struct cli_txt_entry */
+DEFINE_DL_LIST(stations); /* struct cli_txt_entry */
 #endif /* CONFIG_AP */
 
 static int wpa_cli_cmd(struct wpa_ctrl *ctrl, const char *cmd, int min_args,
@@ -63,10 +64,11 @@ static int wpa_cli_cmd(struct wpa_ctrl *ctrl, const char *cmd, int min_args,
 		ret = -1;
 		goto out;
 	}
-
+#ifdef CONFIG_ZEPHYR
 	if (interactive)
 		ret = wpa_ctrl_command_interactive(ctrl, buf);
 	else
+#endif
 		ret = wpa_ctrl_command(ctrl, buf);
 
 out:
@@ -2942,20 +2944,9 @@ static int wpa_cli_cmd_dscp_query(struct wpa_ctrl *ctrl, int argc, char *argv[])
 #endif /* !CONFIG_ZEPHYR || (CONFIG_ZEPHYR && CONFIG_WPA_CLI)*/
 
 
-enum wpa_cli_cmd_flags {
-	cli_cmd_flag_none		= 0x00,
-	cli_cmd_flag_sensitive		= 0x01
-};
 
-struct wpa_cli_cmd {
-	const char *cmd;
-	int (*handler)(struct wpa_ctrl *ctrl, int argc, char *argv[]);
-	char ** (*completion)(const char *str, int pos);
-	enum wpa_cli_cmd_flags flags;
-	const char *usage;
-};
 
-static const struct wpa_cli_cmd wpa_cli_commands[] = {
+const struct wpa_cli_cmd wpa_cli_commands[] = {
 	{ "status", wpa_cli_cmd_status, NULL,
 	  cli_cmd_flag_none,
 	  "[verbose] = get current WPA/EAPOL/EAP status" },
@@ -3647,56 +3638,7 @@ static const struct wpa_cli_cmd wpa_cli_commands[] = {
 	{ NULL, NULL, NULL, cli_cmd_flag_none, NULL }
 };
 
-int wpa_request(struct wpa_ctrl *ctrl, int argc, char *argv[])
-{
-	const struct wpa_cli_cmd *cmd, *match = NULL;
-	int count;
-	int ret = 0;
 
-	if (argc > 1 && os_strncasecmp(argv[0], "IFNAME=", 7) == 0) {
-		ifname_prefix = argv[0] + 7;
-		argv = &argv[1];
-		argc--;
-	} else
-		ifname_prefix = NULL;
+const size_t wpa_cli_commands_size = ARRAY_SIZE(wpa_cli_commands);
 
-	if (argc == 0)
-		return -1;
 
-	count = 0;
-	cmd = wpa_cli_commands;
-	while (cmd->cmd) {
-		if (os_strncasecmp(cmd->cmd, argv[0], os_strlen(argv[0])) == 0)
-		{
-			match = cmd;
-			if (os_strcasecmp(cmd->cmd, argv[0]) == 0) {
-				/* we have an exact match */
-				count = 1;
-				break;
-			}
-			count++;
-		}
-		cmd++;
-	}
-
-	if (count > 1) {
-		wpa_printf(MSG_INFO, "Ambiguous command '%s'; possible commands:", argv[0]);
-		cmd = wpa_cli_commands;
-		while (cmd->cmd) {
-			if (os_strncasecmp(cmd->cmd, argv[0],
-					   os_strlen(argv[0])) == 0) {
-				wpa_printf(MSG_INFO, " %s", cmd->cmd);
-			}
-			cmd++;
-		}
-		wpa_printf(MSG_INFO, "\n");
-		ret = 1;
-	} else if (count == 0) {
-		wpa_printf(MSG_INFO, "Unknown command '%s'\n", argv[0]);
-		ret = 1;
-	} else {
-		ret = match->handler(ctrl, argc - 1, &argv[1]);
-	}
-
-	return ret;
-}

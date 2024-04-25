@@ -22,6 +22,7 @@
 #include "utils/list.h"
 #include "common/version.h"
 #include "common/ieee802_11_defs.h"
+#include "wpa_cli_cmds.h"
 #ifdef ANDROID
 #include <cutils/properties.h>
 #endif /* ANDROID */
@@ -251,20 +252,7 @@ int wpa_ctrl_command(struct wpa_ctrl *ctrl, const char *cmd)
 }
 
 
-static int wpa_cli_cmd(struct wpa_ctrl *ctrl, const char *cmd, int min_args,
-		       int argc, char *argv[])
-{
-	char buf[4096];
-	if (argc < min_args) {
-		printf("Invalid %s command - at least %d argument%s "
-		       "required.\n", cmd, min_args,
-		       min_args > 1 ? "s are" : " is");
-		return -1;
-	}
-	if (write_cmd(buf, sizeof(buf), cmd, argc, argv) < 0)
-		return -1;
-	return wpa_ctrl_command(ctrl, buf);
-}
+
 
 
 /*
@@ -323,7 +311,7 @@ static char ** wpa_list_cmd_list(void)
 	int i, count;
 	struct cli_txt_entry *e;
 
-	count = ARRAY_SIZE(wpa_cli_commands);
+	count = wpa_cli_commands_size;
 	count += dl_list_len(&p2p_groups);
 	count += dl_list_len(&ifnames);
 	res = os_calloc(count + 1, sizeof(char *));
@@ -406,7 +394,7 @@ static char ** wpa_cli_edit_completion_cb(void *ctx, const char *str, int pos)
 }
 
 
-static int wpa_request(struct wpa_ctrl *ctrl, int argc, char *argv[])
+ int wpa_request(struct wpa_ctrl *ctrl, int argc, char *argv[])
 {
 	const struct wpa_cli_cmd *cmd, *match = NULL;
 	int count;

@@ -22,7 +22,9 @@
 #include "mbedtls/error.h"
 #include "mbedtls/oid.h"
 
+#ifdef CONFIG_ZEPHYR
 #include <zephyr/random/random.h>
+#endif
 
 #define IANA_SECP256R1 19
 #define ECP_PRV_DER_MAX_BYTES 29 + 3 * MBEDTLS_ECP_MAX_BYTES
@@ -299,6 +301,7 @@ cleanup:
 
 static int tls_ctr_drbg_random(void *ctx, unsigned char *buf, size_t len)
 {
+#ifdef CONFIG_ZEPHYR
 	ARG_UNUSED(ctx);
 
 #if defined(CONFIG_ENTROPY_HAS_DRIVER)
@@ -307,6 +310,9 @@ static int tls_ctr_drbg_random(void *ctx, unsigned char *buf, size_t len)
 	sys_rand_get(buf, len);
 
 	return 0;
+#endif
+#else
+	return random_get_bytes(buf, len);
 #endif
 }
 

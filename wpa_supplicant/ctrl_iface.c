@@ -61,7 +61,7 @@
 
 #ifdef __NetBSD__
 #include <net/if_ether.h>
-#elif !defined(__CYGWIN__) && !defined(CONFIG_NATIVE_WINDOWS)
+#elif defined(CONFIG_ZEPHYR)
 #include <zephyr/net/ethernet.h>
 #endif
 
