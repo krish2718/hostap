@@ -328,6 +328,7 @@ CONFIG_BACKEND=file
 # Select TLS implementation
 # openssl = OpenSSL (default)
 # gnutls = GnuTLS
+# mbedtls = MbedTLS
 # internal = Internal TLSv1 implementation (experimental)
 # linux = Linux kernel AF_ALG and internal TLSv1 implementation (experimental)
 # none = Empty template

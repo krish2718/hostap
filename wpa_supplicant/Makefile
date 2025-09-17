@@ -777,7 +777,9 @@ OBJS += $(patsubst %.c, %.o, $(SRC_EAP_FAST))
 endif
 TLS_FUNCS=y
 CONFIG_IEEE8021X_EAPOL=y
+ifneq ($(CONFIG_TLS), mbedtls)
 NEED_T_PRF=y
+endif
 endif
 
 ifdef CONFIG_EAP_TEAP
@@ -793,7 +795,9 @@ OBJS += $(patsubst %.c, %.o, $(SRC_EAP_TEAP))
 endif
 TLS_FUNCS=y
 CONFIG_IEEE8021X_EAPOL=y
+ifneq ($(CONFIG_TLS), mbedtls)
 NEED_T_PRF=y
+endif
 NEED_SHA384=y
 NEED_TLS_PRF_SHA256=y
 NEED_TLS_PRF_SHA384=y
@@ -1256,6 +1260,27 @@ endif
 CFLAGS += -DTLS_DEFAULT_CIPHERS=\"$(CONFIG_TLS_DEFAULT_CIPHERS)\"
 endif
 
+ifeq ($(CONFIG_TLS), mbedtls)
+CFLAGS += -DCRYPTO_RSA_OAEP_SHA256
+# Prefer 3.6.5 in /usr/lib over 2.x in /usr/lib/x86_64-linux-gnu (link static)
+MBEDTLS_LIBS = -L/usr/lib -Wl,-Bstatic -lmbedtls -lmbedx509 -lmbedcrypto -Wl,-Bdynamic
+ifdef TLS_FUNCS
+OBJS += ../src/crypto/tls_mbedtls.o
+LIBS += $(MBEDTLS_LIBS)
+endif
+OBJS += ../src/crypto/crypto_mbedtls.o
+OBJS_p += ../src/crypto/crypto_mbedtls.o
+OBJS_priv += ../src/crypto/crypto_mbedtls.o
+ifdef NEED_FIPS186_2_PRF
+OBJS += ../src/crypto/fips_prf_internal.o
+SHA1OBJS += ../src/crypto/sha1-internal.o
+endif
+LIBS += $(MBEDTLS_LIBS)
+LIBS_p += $(MBEDTLS_LIBS)
+CONFIG_INTERNAL_MD4=y
+CONFIG_INTERNAL_SHA1=y
+endif
+
 ifeq ($(CONFIG_TLS), gnutls)
 ifndef CONFIG_CRYPTO
 # default to libgcrypt
@@ -1448,7 +1473,9 @@ endif
 
 ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 NEED_INTERNAL_AES_WRAP=y
+endif
 endif
 endif
 ifdef CONFIG_OPENSSL_INTERNAL_AES_WRAP
@@ -1469,23 +1496,31 @@ endif
 endif
 ifdef NEED_AES_EAX
 AESOBJS += ../src/crypto/aes-eax.o
+ifneq ($(CONFIG_TLS), mbedtls)
 NEED_AES_CTR=y
+endif
 endif
 ifdef NEED_AES_SIV
 AESOBJS += ../src/crypto/aes-siv.o
+ifneq ($(CONFIG_TLS), mbedtls)
 NEED_AES_CTR=y
+endif
 endif
 ifdef NEED_AES_CTR
 AESOBJS += ../src/crypto/aes-ctr.o
 endif
+ifneq ($(CONFIG_TLS), mbedtls)
 ifdef NEED_AES_ENCBLOCK
 AESOBJS += ../src/crypto/aes-encblock.o
+endif
 endif
 NEED_AES_ENC=y
 ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), linux)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 AESOBJS += ../src/crypto/aes-omac1.o
+endif
 endif
 endif
 endif
@@ -1500,7 +1535,9 @@ NEED_AES_ENC=y
 ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), linux)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 AESOBJS += ../src/crypto/aes-cbc.o
+endif
 endif
 endif
 endif
@@ -1519,12 +1556,16 @@ ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), linux)
 ifneq ($(CONFIG_TLS), gnutls)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 SHA1OBJS += ../src/crypto/sha1.o
 endif
 endif
 endif
 endif
+endif
+ifneq ($(CONFIG_TLS), mbedtls)
 SHA1OBJS += ../src/crypto/sha1-prf.o
+endif
 ifdef CONFIG_INTERNAL_SHA1
 SHA1OBJS += ../src/crypto/sha1-internal.o
 ifdef NEED_FIPS186_2_PRF
@@ -1536,7 +1577,9 @@ CFLAGS += -DCONFIG_NO_PBKDF2
 else
 ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 SHA1OBJS += ../src/crypto/sha1-pbkdf2.o
+endif
 endif
 endif
 endif
@@ -1553,7 +1596,9 @@ ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), linux)
 ifneq ($(CONFIG_TLS), gnutls)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 MD5OBJS += ../src/crypto/md5.o
+endif
 endif
 endif
 endif
@@ -1613,12 +1658,16 @@ ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), linux)
 ifneq ($(CONFIG_TLS), gnutls)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 SHA256OBJS += ../src/crypto/sha256.o
 endif
 endif
 endif
 endif
+endif
+ifneq ($(CONFIG_TLS), mbedtls)
 SHA256OBJS += ../src/crypto/sha256-prf.o
+endif
 ifdef CONFIG_INTERNAL_SHA256
 SHA256OBJS += ../src/crypto/sha256-internal.o
 endif
@@ -1636,6 +1685,7 @@ endif
 ifdef NEED_TLS_PRF_SHA384
 SHA256OBJS += ../src/crypto/sha384-tlsprf.o
 endif
+ifneq ($(CONFIG_TLS), mbedtls)
 ifdef NEED_HMAC_SHA256_KDF
 CFLAGS += -DCONFIG_HMAC_SHA256_KDF
 OBJS += ../src/crypto/sha256-kdf.o
@@ -1648,32 +1698,41 @@ ifdef NEED_HMAC_SHA512_KDF
 CFLAGS += -DCONFIG_HMAC_SHA512_KDF
 OBJS += ../src/crypto/sha512-kdf.o
 endif
+endif
 OBJS += $(SHA256OBJS)
 ifdef NEED_SHA384
 ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), linux)
 ifneq ($(CONFIG_TLS), gnutls)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 OBJS += ../src/crypto/sha384.o
 endif
 endif
 endif
 endif
+endif
 CFLAGS += -DCONFIG_SHA384
+ifneq ($(CONFIG_TLS), mbedtls)
 OBJS += ../src/crypto/sha384-prf.o
+endif
 endif
 ifdef NEED_SHA512
 ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), linux)
 ifneq ($(CONFIG_TLS), gnutls)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 OBJS += ../src/crypto/sha512.o
 endif
 endif
 endif
 endif
+endif
 CFLAGS += -DCONFIG_SHA512
+ifneq ($(CONFIG_TLS), mbedtls)
 OBJS += ../src/crypto/sha512-prf.o
+endif
 endif
 
 ifdef NEED_ASN1
@@ -1849,7 +1908,9 @@ ifdef CONFIG_FIPS
 CFLAGS += -DCONFIG_FIPS
 ifneq ($(CONFIG_TLS), openssl)
 ifneq ($(CONFIG_TLS), wolfssl)
+ifneq ($(CONFIG_TLS), mbedtls)
 $(error CONFIG_FIPS=y requires CONFIG_TLS=openssl)
+endif
 endif
 endif
 endif
@@ -2287,6 +2348,15 @@ ifdef TLS_FUNCS
 LIBPASNSO += ../src/crypto/tls_wolfssl.c
 NEED_TLS_PRF_SHA256=y
 LIBPASNSO_DEP += -lwolfssl -lm
+endif
+endif
+
+ifeq ($(CONFIG_TLS), mbedtls)
+LIBPASNSO += ../src/crypto/crypto_mbedtls.c
+ifdef TLS_FUNCS
+LIBPASNSO += ../src/crypto/tls_mbedtls.c
+LIBPASNSO += -L/usr/lib -lmbedtls -lmbedx509 -lmbedcrypto
+NEED_TLS_PRF_SHA256=y
 endif
 endif
 
