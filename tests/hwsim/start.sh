@@ -65,6 +65,8 @@ else
     GROUP=adm
 fi
 
+# Per-interface ctrl must be DIR=/var/run/wpa_supplicant so run-tests.py finds
+# sockets at /var/run/wpa_supplicant/wlan0 etc. stop.sh cleans those paths.
 for i in 0 1 2; do
     sed "s/ GROUP=.*$/ GROUP=$GROUP/" "$DIR/p2p$i.conf" > "$LOGDIR/p2p$i.conf"
 done
@@ -118,25 +120,43 @@ fi
 test -d /sys/module/mac80211_hwsim || sudo modprobe mac80211_hwsim radios=7 channels=$NUM_CH support_p2p_device=0 dyndbg=+p
 
 sudo ip link set hwsim0 up
+rm -f $LOGDIR/wpa_supplicant.pids $LOGDIR/hostapd.pids $LOGDIR/wlantest.pid \
+    $LOGDIR/hlr_auc_gw.pid $LOGDIR/auth_serv.pids
 sudo $WLANTEST -i hwsim0 -n $LOGDIR/hwsim0.pcapng -c -dtN -L $LOGDIR/hwsim0 &
+sleep 0.1
+pgrep -P $! >> $LOGDIR/wlantest.pid 2>/dev/null || echo $! >> $LOGDIR/wlantest.pid
 for i in 0 1 2; do
     DBUSARG=""
-    if [ $i = "0" ] && ([ -r /var/run/dbus/pid ] || [ -r /var/run/dbus/system_bus_socket ]); then
+    if [ $i = "0" ] && [ -z "$NO_DBUS" ] && \
+	([ -r /var/run/dbus/pid ] || [ -r /var/run/dbus/system_bus_socket ]); then
 	if $WPAS | grep -q -- -u; then
 	    DBUSARG="-u"
 	fi
     fi
     sudo $(printf -- "$VALGRIND_WPAS" $i) $WPAS -g /tmp/wpas-wlan$i -G$GROUP -Dnl80211 -iwlan$i -c $LOGDIR/p2p$i.conf \
          -ddKt$TRACE -f $LOGDIR/log$i $DBUSARG &
+    sleep 0.05
+    pgrep -P $! >> $LOGDIR/wpa_supplicant.pids 2>/dev/null || echo $! >> $LOGDIR/wpa_supplicant.pids
 done
 sudo $(printf -- "$VALGRIND_WPAS" 5) $WPAS -g /tmp/wpas-wlan5 -G$GROUP \
     -ddKt$TRACE -f $LOGDIR/log5 &
+sleep 0.05
+pgrep -P $! >> $LOGDIR/wpa_supplicant.pids 2>/dev/null || echo $! >> $LOGDIR/wpa_supplicant.pids
 sudo $(printf -- "$VALGRIND_WPAS" 6) $WPAS -g /tmp/wpas-wlan6 -G$GROUP \
     -ddKt$TRACE -f $LOGDIR/log6 &
+sleep 0.05
+pgrep -P $! >> $LOGDIR/wpa_supplicant.pids 2>/dev/null || echo $! >> $LOGDIR/wpa_supplicant.pids
 sudo $(printf -- "$VALGRIND_WPAS" 7) $WPAS -g /tmp/wpas-wlan7 -G$GROUP \
     -ddKt$TRACE -f $LOGDIR/log7 &
+sleep 0.05
+pgrep -P $! >> $LOGDIR/wpa_supplicant.pids 2>/dev/null || echo $! >> $LOGDIR/wpa_supplicant.pids
+# Ensure stale hostapd global socket is gone before starting (e.g. from previous run)
+sudo rm -f /var/run/hostapd-global
+sleep 0.3
 sudo $VALGRIND_HAPD $HAPD -ddKt$TRACE -g /var/run/hostapd-global -G $GROUP -f $LOGDIR/hostapd &
 HPID=$!
+sleep 0.1
+pgrep -P $HPID >> $LOGDIR/hostapd.pids 2>/dev/null || echo $HPID >> $LOGDIR/hostapd.pids
 
 if [ -z "$VM" ]; then
     # Sleep a bit, otherwise pgrep may run before the child is forked
@@ -149,6 +169,8 @@ fi
 if [ -x $HLR_AUC_GW ]; then
     cp $DIR/auth_serv/hlr_auc_gw.milenage_db $LOGDIR/hlr_auc_gw.milenage_db
     sudo $HLR_AUC_GW -u -m $LOGDIR/hlr_auc_gw.milenage_db -g $DIR/auth_serv/hlr_auc_gw.gsm > $LOGDIR/hlr_auc_gw &
+    sleep 0.05
+    pgrep -P $! >> $LOGDIR/hlr_auc_gw.pid 2>/dev/null || echo $! >> $LOGDIR/hlr_auc_gw.pid
 fi
 
 openssl ocsp -index $DIR/auth_serv/index.txt \
@@ -165,7 +187,10 @@ if [ ! -r $LOGDIR/ocsp-server-cache.der ]; then
 fi
 
 touch $LOGDIR/hostapd.db
+sudo mkdir -p /var/run/hostapd
 sudo $HAPD_AS -ddKt $LOGDIR/as.conf $LOGDIR/as2.conf > $LOGDIR/auth_serv &
+sleep 0.05
+pgrep -P $! >> $LOGDIR/auth_serv.pids 2>/dev/null || echo $! >> $LOGDIR/auth_serv.pids
 
 # wait for programs to be fully initialized
 for i in 0 1 2 3 4 5 6 7 8 9; do
@@ -187,27 +212,29 @@ for i in 0 1 2; do
     done
 done
 
-for j in `seq 1 10`; do
-    if $WPACLI -g /var/run/hostapd-global ping | grep -q PONG; then
+for j in `seq 1 30`; do
+    if $WPACLI -g /var/run/hostapd-global ping 2>/dev/null | grep -q PONG; then
 	break
     fi
-    if [ $j = "10" ]; then
+    if [ $j = "30" ]; then
 	echo "Could not connect to /var/run/hostapd-global"
 	exit 1
     fi
     sleep 1
 done
 
-for j in `seq 1 10`; do
-    if $HAPDCLI -i as ping | grep -q PONG; then
-	break
-    fi
-    if [ $j = "10" ]; then
-	echo "Could not connect to hostapd-as-RADIUS-server"
-	exit 1
-    fi
-    sleep 1
-done
+if [ -z "$SKIP_AUTH_SERV" ]; then
+    for j in `seq 1 30`; do
+	if $HAPDCLI -i as ping 2>/dev/null | grep -q PONG; then
+	    break
+	fi
+	if [ $j = "30" ]; then
+	    echo "Could not connect to hostapd-as-RADIUS-server"
+	    exit 1
+	fi
+	sleep 1
+    done
+fi
 
 if [ $USER = "0" -o $USER = "root" ]; then
     exit 0

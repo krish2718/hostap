@@ -3376,6 +3376,24 @@ void crypto_rsa_key_free(struct crypto_rsa_key *key)
     }
 }
 
+#if defined(CRYPTO_RSA_OAEP_SHA256)
+struct wpabuf * crypto_rsa_oaep_sha256_decrypt(struct crypto_rsa_key *key,
+					       const struct wpabuf *in)
+{
+	(void)key;
+	(void)in;
+	return NULL; /* EAP-SIM encrypted identity not implemented for mbedtls */
+}
+
+struct wpabuf * crypto_rsa_oaep_sha256_encrypt(struct crypto_rsa_key *key,
+					      const struct wpabuf *in)
+{
+	(void)key;
+	(void)in;
+	return NULL;
+}
+#endif /* CRYPTO_RSA_OAEP_SHA256 */
+
 /* RC4 functions */
 #ifndef CONFIG_NO_RC4
 int rc4_skip(const u8 *key, size_t keylen, size_t skip,

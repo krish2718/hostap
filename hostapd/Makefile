@@ -1060,7 +1060,9 @@ endif
 endif
 endif
 ifdef NEED_T_PRF
+ifneq ($(CONFIG_TLS), mbedtls)
 SHA1OBJS += ../src/crypto/sha1-tprf.o
+endif
 endif
 ifdef NEED_TLS_PRF
 SHA1OBJS += ../src/crypto/sha1-tlsprf.o
@@ -1150,7 +1152,9 @@ OBJS += ../src/crypto/sha256-tlsprf.o
 endif
 endif
 ifdef NEED_TLS_PRF_SHA384
+ifneq ($(CONFIG_TLS), mbedtls)
 OBJS += ../src/crypto/sha384-tlsprf.o
+endif
 endif
 ifdef NEED_HMAC_SHA256_KDF
 ifneq ($(CONFIG_TLS), mbedtls)

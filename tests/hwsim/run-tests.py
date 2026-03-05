@@ -201,6 +201,8 @@ def rename_log(logdir, basename, testname, dev):
     try:
         import getpass
         srcname = os.path.join(logdir, basename)
+        if not os.path.exists(srcname):
+            return
         dstname = os.path.join(logdir, testname + '.' + basename)
         num = 0
         while os.path.exists(dstname):
@@ -210,7 +212,7 @@ def rename_log(logdir, basename, testname, dev):
         os.rename(srcname, dstname)
         if dev:
             dev.relog()
-            subprocess.call(['chown', '-f', getpass.getuser(), srcname])
+            subprocess.call(['chown', '-f', getpass.getuser(), dstname])
     except Exception as e:
         logger.exception("Failed to rename log files")
 
